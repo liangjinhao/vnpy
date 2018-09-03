@@ -6,6 +6,8 @@ import os
 import platform
 from collections import OrderedDict
 
+from six import text_type
+
 from vnpy.event import *
 from .vtEvent import *
 from .vtFunction import *
@@ -13,6 +15,7 @@ from .vtGateway import *
 from . import vtText
 from .uiQt import QtGui, QtWidgets, QtCore, BASIC_FONT
 from .vtFunction import jsonPathDict
+from .vtConstant import *
 
 
 COLOR_RED = QtGui.QColor('red')
@@ -374,7 +377,7 @@ class BasicMonitor(QtWidgets.QTableWidget):
         self.menu.close()
         
         # 获取想要保存的文件名
-        path = QtWidgets.QFileDialog.getSaveFileName(self, vtText.SAVE_DATA, '', 'CSV(*.csv)')
+        path, fileType = QtWidgets.QFileDialog.getSaveFileName(self, vtText.SAVE_DATA, '', 'CSV(*.csv)')
 
         try:
             #if not path.isEmpty():
@@ -393,7 +396,7 @@ class BasicMonitor(QtWidgets.QTableWidget):
                             item = self.item(row, column)
                             if item is not None:
                                 rowdata.append(
-                                    unicode(item.text()).encode('gbk'))
+                                    text_type(item.text()).encode('gbk'))
                             else:
                                 rowdata.append('')
                         writer.writerow(rowdata)     
@@ -405,9 +408,13 @@ class BasicMonitor(QtWidgets.QTableWidget):
         """初始化右键菜单"""
         self.menu = QtWidgets.QMenu(self)    
         
+        resizeAction = QtWidgets.QAction(vtText.RESIZE_COLUMNS, self)
+        resizeAction.triggered.connect(self.resizeColumns)        
+        
         saveAction = QtWidgets.QAction(vtText.SAVE_DATA, self)
         saveAction.triggered.connect(self.saveToCsv)
         
+        self.menu.addAction(resizeAction)
         self.menu.addAction(saveAction)
         
     #----------------------------------------------------------------------
@@ -453,8 +460,8 @@ class MarketMonitor(BasicMonitor):
         # 设置字体
         self.setFont(BASIC_FONT)
         
-        # 设置允许排序
-        self.setSorting(True)
+        # 设置排序
+        self.setSorting(False)
         
         # 初始化表格
         self.initTable()
@@ -696,7 +703,8 @@ class TradingWidget(QtWidgets.QFrame):
                         PRODUCT_EQUITY,
                         PRODUCT_FUTURES,
                         PRODUCT_OPTION,
-                        PRODUCT_FOREX]
+                        PRODUCT_FOREX,
+                        PRODUCT_SPOT]
     
     gatewayList = ['']
 
@@ -715,13 +723,13 @@ class TradingWidget(QtWidgets.QFrame):
         self.gatewayList.extend(gatewayNameList)
 
         self.initUi()
-        self.connectSignal()
+        self.registerEvent()
 
     #----------------------------------------------------------------------
     def initUi(self):
         """初始化界面"""
         self.setWindowTitle(vtText.TRADING)
-        self.setMaximumWidth(400)
+        self.setFixedWidth(500)
         self.setFrameShape(self.Box)    # 设置边框
         self.setLineWidth(1)           
 
@@ -748,14 +756,14 @@ class TradingWidget(QtWidgets.QFrame):
         self.comboOffset = QtWidgets.QComboBox()
         self.comboOffset.addItems(self.offsetList)
 
-        self.spinPrice = QtWidgets.QDoubleSpinBox()
-        self.spinPrice.setDecimals(4)
-        self.spinPrice.setMinimum(0)
-        self.spinPrice.setMaximum(100000)
+        validator = QtGui.QDoubleValidator()
+        validator.setBottom(0)        
 
-        self.spinVolume = QtWidgets.QSpinBox()
-        self.spinVolume.setMinimum(0)
-        self.spinVolume.setMaximum(1000000)
+        self.linePrice = QtWidgets.QLineEdit()
+        self.linePrice.setValidator(validator)
+        
+        self.lineVolume = QtWidgets.QLineEdit()
+        self.lineVolume.setValidator(validator)
 
         self.comboPriceType = QtWidgets.QComboBox()
         self.comboPriceType.addItems(self.priceTypeList)
@@ -790,8 +798,8 @@ class TradingWidget(QtWidgets.QFrame):
         gridleft.addWidget(self.comboDirection, 2, 1, 1, -1)
         gridleft.addWidget(self.comboOffset, 3, 1, 1, -1)
         gridleft.addWidget(self.checkFixed, 4, 1)
-        gridleft.addWidget(self.spinPrice, 4, 2)
-        gridleft.addWidget(self.spinVolume, 5, 1, 1, -1)
+        gridleft.addWidget(self.linePrice, 4, 2)
+        gridleft.addWidget(self.lineVolume, 5, 1, 1, -1)
         gridleft.addWidget(self.comboPriceType, 6, 1, 1, -1)
         gridleft.addWidget(self.comboExchange, 7, 1, 1, -1)
         gridleft.addWidget(self.comboCurrency, 8, 1, 1, -1)
@@ -876,6 +884,8 @@ class TradingWidget(QtWidgets.QFrame):
         gridRight.addWidget(self.labelBidVolume3, 8, 2)
         gridRight.addWidget(self.labelBidVolume4, 9, 2)
         gridRight.addWidget(self.labelBidVolume5, 10, 2)
+        
+        self.labelBidVolume5.setFixedWidth(100)
 
         # 发单按钮
         buttonSendOrder = QtWidgets.QPushButton(vtText.SEND_ORDER)
@@ -908,10 +918,10 @@ class TradingWidget(QtWidgets.QFrame):
         """合约变化"""
         # 读取组件数据
         symbol = str(self.lineSymbol.text())
-        exchange = unicode(self.comboExchange.currentText())
-        currency = unicode(self.comboCurrency.currentText())
-        productClass = unicode(self.comboProductClass.currentText())           
-        gatewayName = unicode(self.comboGateway.currentText())
+        exchange = text_type(self.comboExchange.currentText())
+        currency = text_type(self.comboCurrency.currentText())
+        productClass = text_type(self.comboProductClass.currentText())           
+        gatewayName = text_type(self.comboGateway.currentText())
         
         # 查询合约
         if exchange:
@@ -928,8 +938,8 @@ class TradingWidget(QtWidgets.QFrame):
             exchange = contract.exchange    # 保证有交易所代码
             
         # 清空价格数量
-        self.spinPrice.setValue(0)
-        self.spinVolume.setValue(0)
+        self.linePrice.clear()
+        self.lineVolume.clear()
 
         # 清空行情显示
         self.labelBidPrice1.setText('')
@@ -955,10 +965,6 @@ class TradingWidget(QtWidgets.QFrame):
         self.labelLastPrice.setText('')
         self.labelReturn.setText('')
 
-        # 重新注册事件监听
-        self.eventEngine.unregister(EVENT_TICK + self.symbol, self.signal.emit)
-        self.eventEngine.register(EVENT_TICK + vtSymbol, self.signal.emit)
-
         # 订阅合约
         req = VtSubscribeReq()
         req.symbol = symbol
@@ -978,57 +984,61 @@ class TradingWidget(QtWidgets.QFrame):
     def updateTick(self, event):
         """更新行情"""
         tick = event.dict_['data']
+        if tick.vtSymbol != self.symbol:
+            return
+        
+        if not self.checkFixed.isChecked():
+            self.linePrice.setText(str(tick.lastPrice))
+        
+        self.labelBidPrice1.setText(str(tick.bidPrice1))
+        self.labelAskPrice1.setText(str(tick.askPrice1))
+        self.labelBidVolume1.setText(str(tick.bidVolume1))
+        self.labelAskVolume1.setText(str(tick.askVolume1))
+        
+        if tick.bidPrice2:
+            self.labelBidPrice2.setText(str(tick.bidPrice2))
+            self.labelBidPrice3.setText(str(tick.bidPrice3))
+            self.labelBidPrice4.setText(str(tick.bidPrice4))
+            self.labelBidPrice5.setText(str(tick.bidPrice5))
 
-        if tick.vtSymbol == self.symbol:
-            if not self.checkFixed.isChecked():
-                self.spinPrice.setValue(tick.lastPrice)
-            self.labelBidPrice1.setText(str(tick.bidPrice1))
-            self.labelAskPrice1.setText(str(tick.askPrice1))
-            self.labelBidVolume1.setText(str(tick.bidVolume1))
-            self.labelAskVolume1.setText(str(tick.askVolume1))
-            
-            if tick.bidPrice2:
-                self.labelBidPrice2.setText(str(tick.bidPrice2))
-                self.labelBidPrice3.setText(str(tick.bidPrice3))
-                self.labelBidPrice4.setText(str(tick.bidPrice4))
-                self.labelBidPrice5.setText(str(tick.bidPrice5))
-    
-                self.labelAskPrice2.setText(str(tick.askPrice2))
-                self.labelAskPrice3.setText(str(tick.askPrice3))
-                self.labelAskPrice4.setText(str(tick.askPrice4))
-                self.labelAskPrice5.setText(str(tick.askPrice5))
-    
-                self.labelBidVolume2.setText(str(tick.bidVolume2))
-                self.labelBidVolume3.setText(str(tick.bidVolume3))
-                self.labelBidVolume4.setText(str(tick.bidVolume4))
-                self.labelBidVolume5.setText(str(tick.bidVolume5))
-                
-                self.labelAskVolume2.setText(str(tick.askVolume2))
-                self.labelAskVolume3.setText(str(tick.askVolume3))
-                self.labelAskVolume4.setText(str(tick.askVolume4))
-                self.labelAskVolume5.setText(str(tick.askVolume5))	
+            self.labelAskPrice2.setText(str(tick.askPrice2))
+            self.labelAskPrice3.setText(str(tick.askPrice3))
+            self.labelAskPrice4.setText(str(tick.askPrice4))
+            self.labelAskPrice5.setText(str(tick.askPrice5))
 
-            self.labelLastPrice.setText(str(tick.lastPrice))
+            self.labelBidVolume2.setText(str(tick.bidVolume2))
+            self.labelBidVolume3.setText(str(tick.bidVolume3))
+            self.labelBidVolume4.setText(str(tick.bidVolume4))
+            self.labelBidVolume5.setText(str(tick.bidVolume5))
             
-            if tick.preClosePrice:
-                rt = (tick.lastPrice/tick.preClosePrice)-1
-                self.labelReturn.setText(('%.2f' %(rt*100))+'%')
-            else:
-                self.labelReturn.setText('')
+            self.labelAskVolume2.setText(str(tick.askVolume2))
+            self.labelAskVolume3.setText(str(tick.askVolume3))
+            self.labelAskVolume4.setText(str(tick.askVolume4))
+            self.labelAskVolume5.setText(str(tick.askVolume5))	
+
+        self.labelLastPrice.setText(str(tick.lastPrice))
+        
+        if tick.preClosePrice:
+            rt = (tick.lastPrice/tick.preClosePrice)-1
+            self.labelReturn.setText(('%.2f' %(rt*100))+'%')
+        else:
+            self.labelReturn.setText('')
 
     #----------------------------------------------------------------------
-    def connectSignal(self):
-        """连接Signal"""
+    def registerEvent(self):
+        """注册事件监听"""
         self.signal.connect(self.updateTick)
+        self.eventEngine.register(EVENT_TICK, self.signal.emit)        
 
     #----------------------------------------------------------------------
     def sendOrder(self):
         """发单"""
         symbol = str(self.lineSymbol.text())
-        exchange = unicode(self.comboExchange.currentText())
-        currency = unicode(self.comboCurrency.currentText())
-        productClass = unicode(self.comboProductClass.currentText())           
-        gatewayName = unicode(self.comboGateway.currentText())        
+        vtSymbol = symbol
+        exchange = text_type(self.comboExchange.currentText())
+        currency = text_type(self.comboCurrency.currentText())
+        productClass = text_type(self.comboProductClass.currentText())           
+        gatewayName = text_type(self.comboGateway.currentText())        
 
         # 查询合约
         if exchange:
@@ -1041,15 +1051,34 @@ class TradingWidget(QtWidgets.QFrame):
         if contract:
             gatewayName = contract.gatewayName
             exchange = contract.exchange    # 保证有交易所代码
-            
+            vtSymbol = contract.vtSymbol
+        
+        # 获取价格
+        priceText = self.linePrice.text()
+        if not priceText:
+            return
+        price = float(priceText)
+        
+        # 获取数量
+        volumeText = self.lineVolume.text()
+        if not volumeText:
+            return
+        
+        if '.' in volumeText:
+            volume = float(volumeText)
+        else:
+            volume = int(volumeText)
+        
+        # 委托
         req = VtOrderReq()
         req.symbol = symbol
         req.exchange = exchange
-        req.price = self.spinPrice.value()
-        req.volume = self.spinVolume.value()
-        req.direction = unicode(self.comboDirection.currentText())
-        req.priceType = unicode(self.comboPriceType.currentText())
-        req.offset = unicode(self.comboOffset.currentText())
+        req.vtSymbol = vtSymbol
+        req.price = price
+        req.volume = volume
+        req.direction = text_type(self.comboDirection.currentText())
+        req.priceType = text_type(self.comboPriceType.currentText())
+        req.offset = text_type(self.comboOffset.currentText())
         req.currency = currency
         req.productClass = productClass
         
@@ -1082,7 +1111,7 @@ class TradingWidget(QtWidgets.QFrame):
         # 自动填写信息
         self.comboPriceType.setCurrentIndex(self.priceTypeList.index(PRICETYPE_LIMITPRICE))
         self.comboOffset.setCurrentIndex(self.offsetList.index(OFFSET_CLOSE))
-        self.spinVolume.setValue(pos.position)
+        self.lineVolume.setText(str(pos.position))
 
         if pos.direction == DIRECTION_LONG or pos.direction == DIRECTION_NET:
             self.comboDirection.setCurrentIndex(self.directionList.index(DIRECTION_SHORT))
@@ -1111,9 +1140,11 @@ class ContractMonitor(BasicMonitor):
         d['productClass'] = {'chinese':vtText.PRODUCT_CLASS, 'cellType':BasicCell}
         d['size'] = {'chinese':vtText.CONTRACT_SIZE, 'cellType':BasicCell}
         d['priceTick'] = {'chinese':vtText.PRICE_TICK, 'cellType':BasicCell}
-        d['strikePrice'] = {'chinese':vtText.STRIKE_PRICE, 'cellType':BasicCell}
+        
         d['underlyingSymbol'] = {'chinese':vtText.UNDERLYING_SYMBOL, 'cellType':BasicCell}
-        d['optionType'] = {'chinese':vtText.OPTION_TYPE, 'cellType':BasicCell}     
+        d['optionType'] = {'chinese':vtText.OPTION_TYPE, 'cellType':BasicCell}  
+        d['expiryDate'] = {'chinese':vtText.EXPIRY_DATE, 'cellType':BasicCell}
+        d['strikePrice'] = {'chinese':vtText.STRIKE_PRICE, 'cellType':BasicCell}
         self.setHeaderDict(d)
         
         # 过滤显示用的字符串
@@ -1134,7 +1165,7 @@ class ContractMonitor(BasicMonitor):
         """显示所有合约数据"""
         l = self.mainEngine.getAllContracts()
         d = {'.'.join([contract.exchange, contract.symbol]):contract for contract in l}
-        l2 = d.keys()
+        l2 = list(d.keys())
         l2.sort(reverse=True)
 
         self.setRowCount(len(l2))
@@ -1228,7 +1259,30 @@ class ContractManager(QtWidgets.QWidget):
         content = str(self.lineFilter.text())
         self.monitor.setFilterContent(content)
         self.monitor.refresh()
-    
+
+
+########################################################################
+class WorkingOrderMonitor(OrderMonitor):
+    """活动委托监控"""
+    STATUS_COMPLETED = [STATUS_ALLTRADED, STATUS_CANCELLED, STATUS_REJECTED]
+
+    #----------------------------------------------------------------------
+    def __init__(self, mainEngine, eventEngine, parent=None):
+        """Constructor"""
+        super(WorkingOrderMonitor, self).__init__(mainEngine, eventEngine, parent)
+        
+    #----------------------------------------------------------------------
+    def updateData(self, data):
+        """更新数据"""
+        super(WorkingOrderMonitor, self).updateData(data)
+
+        # 如果该委托已完成，则隐藏该行
+        if data.status in self.STATUS_COMPLETED:
+            vtOrderID = data.vtOrderID
+            cellDict = self.dataDict[vtOrderID]
+            cell = cellDict['status']
+            row = self.row(cell)
+            self.hideRow(row)    
     
 
 ########################################################################
@@ -1311,11 +1365,6 @@ class SettingEditor(QtWidgets.QWidget):
         
         # 显示界面
         super(SettingEditor, self).show()
-        
-        
-        
-        
-        
-    
+
     
     
